@@ -4,7 +4,7 @@
  * Єдине місце, де задано кольори, шрифти й тіні. У компонентах — лише токени
  * (bg-paper, text-muted, border-ink, text-danger…), без жодного hex.
  */
-@theme {
+@theme static {
   --color-bg: #ebe9e5;
   --color-paper: #ffffff;
   --color-ink: #1f1e1c;
@@ -17,6 +17,8 @@
   --color-warm-ink: #9a5c08;
   --color-warm-soft: #fff1d9;
   --color-warm-glow: #ffc46e;
+  --color-tint-blue: #8ec9f0;
+  --color-tint-red: #e0584f;
   --color-danger: #b3261e;
   --color-scrim: rgb(235 233 229 / 0.9);
   --color-label-bg: rgb(255 255 255 / 0.72);

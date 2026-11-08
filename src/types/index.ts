@@ -26,6 +26,19 @@ export interface Place {
   kind: 'poi' | 'mc';
   d: number;
   label?: string;
+  /** додане користувачем (можна редагувати й видаляти) */
+  custom?: boolean;
+  by?: string;
+}
+
+/** Що зараз ставимо на мапі: спогад чи місце */
+export type Placing = 'mark' | 'place' | null;
+
+/** Сховище власних місць: localStorage або Supabase */
+export interface PlacesApi {
+  list(): Promise<Place[]>;
+  save(place: Place): Promise<void>;
+  remove(id: string): Promise<void>;
 }
 
 export interface TourInfo {
@@ -55,6 +68,7 @@ export interface EngineOptions {
 export interface CityEngine {
   setMarkers(marks: Mark[]): void;
   setPlaces(places: Place[]): void;
+  setBuildingTints(list: { lat: number; lon: number; color: string }[]): void;
   setSelected(id: string | null): void;
   setCanEdit(v: boolean): void;
   setPlacing(v: boolean): void;

@@ -459,12 +459,14 @@ const glowArr=new Float32Array(P.length/3);
 const glowAttr=new THREE.BufferAttribute(glowArr,1); glowAttr.setUsage(THREE.DynamicDrawUsage);
 cityGeo.setAttribute('glow',glowAttr);
 const bidArr=Int32Array.from(BID);
+const tintArr=new Float32Array(P.length).fill(1);
+cityGeo.setAttribute('tint',new THREE.BufferAttribute(tintArr,3));
 const cityMat=new THREE.MeshStandardMaterial({color:0xf3f2ef,roughness:.93,metalness:0});
 cityMat.onBeforeCompile=s=>{
-  s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nattribute float glow;\nvarying float vGlow;\nvarying float vWy;\nvarying float vNy;')
-    .replace('#include <begin_vertex>','#include <begin_vertex>\nvGlow=glow;vWy=position.y;vNy=normal.y;');
-  s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying float vGlow;\nvarying float vWy;\nvarying float vNy;')
-    .replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb*=(1.0-0.32*vGlow);')
+  s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nattribute float glow;\nattribute vec3 tint;\nvarying vec3 vTint;\nvarying float vGlow;\nvarying float vWy;\nvarying float vNy;')
+    .replace('#include <begin_vertex>','#include <begin_vertex>\nvTint=tint;vGlow=glow;vWy=position.y;vNy=normal.y;');
+  s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vTint;\nvarying float vGlow;\nvarying float vWy;\nvarying float vNy;')
+    .replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb*=vTint*(1.0-0.32*vGlow);')
     .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\nfloat gf=vGlow*(smoothstep(7.5,1.0,vWy)*(1.0-abs(vNy))*2.4+0.06);\ntotalEmissiveRadiance+=vec3(1.0,0.64,0.24)*gf;');
 };
 const city=new THREE.Mesh(cityGeo,cityMat);
@@ -759,6 +761,20 @@ const poolGeo=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2);
 
   /* публічні місця (Політехніка, McDonald's…) — це назви на мапі, а не особисті мітки */
   const poi=[];
+  /* Фарбування окремих будівель: [{lat,lon,color}] → найближча будівля (до 30 м) отримує колір */
+  function setBuildingTints(list){
+    tintArr.fill(1);
+    const c=new THREE.Color();
+    for(const t of list){
+      const x=(t.lon-24.0316)*71700,z=(49.8418-t.lat)*111000;
+      let id=resolveBid(x,z),bd=1e9;
+      if(id<0){for(let i=0;i<bld.length;i++){const bb=bld[i].bb;if(!bb)continue;const d=Math.hypot(Math.max(bb[0]-x,0,x-bb[2]),Math.max(bb[1]-z,0,z-bb[3]));if(d<bd&&d<30){bd=d;id=i}}}
+      if(id<0)continue;
+      c.set(t.color);
+      for(let i=0;i<bidArr.length;i++)if(bidArr[i]===id){tintArr[i*3]=c.r;tintArr[i*3+1]=c.g;tintArr[i*3+2]=c.b}
+    }
+    cityGeo.attributes.tint.needsUpdate=true;
+  }
   function setPlaces(list){
     poi.forEach(o=>o.el.remove()); poi.length=0;
     for(const p of list){
@@ -770,7 +786,7 @@ const poolGeo=new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2);
   }
 
   return{
-    setPlaces,setMarkers,setSelected,setCanEdit,setPlacing,setShowNames,flyTo,
+    setPlaces,setBuildingTints,setMarkers,setSelected,setCanEdit,setPlacing,setShowNames,flyTo,
     startTour,stopTour,startWalk,stopWalk,setJoystick,getFeet,makeMarkerAt,
     toLatLon,destroy,
     isWalking:()=>!!walk,

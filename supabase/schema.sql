@@ -68,7 +68,7 @@ create policy "marks: editors update" on public.marks for update to authenticate
 create policy "marks: editors delete" on public.marks for delete to authenticated using (public.is_editor());
 
 -- Якщо хочете, щоб мапу могли ПЕРЕГЛЯДАТИ всі з посиланням (без входу) — розкоментуйте
--- і поставте VITE_PUBLIC_VIEW=true у .env.local:
+-- і поставте NEXT_PUBLIC_PUBLIC_VIEW=true у .env.local:
 -- create policy "marks: public read" on public.marks for select to anon using (true);
 
 -- ---------- 3) Живі оновлення (щоб обоє бачили нові місця одразу) ----------

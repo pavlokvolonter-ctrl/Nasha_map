@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { BUILDING_TINTS } from './data/buildingTints';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MapView from './components/MapView';
 import TopBar from './components/TopBar';
 import MarksList from './components/MarksList';
 import Editor from './components/Editor';
+import PlaceEditor from './components/PlaceEditor';
 import WalkPad from './components/WalkPad';
 import Login from './components/Login';
 import Denied from './components/Denied';
@@ -10,9 +12,10 @@ import placesData from './data/places.json';
 import { useAuth, signOut } from './lib/useAuth';
 import { publicView } from './lib/supabase';
 import { localApi, remoteApi, seedMarks } from './lib/api';
-import type { CityEngine, EngineHandlers, Mark, MarksApi, Place, TourInfo } from './types';
+import { localPlacesApi, remotePlacesApi } from './lib/placesApi';
+import type { CityEngine, EngineHandlers, Mark, MarksApi, Place, PlacesApi, Placing, TourInfo } from './types';
 
-const places = placesData as Place[];
+const builtinPlaces = placesData as Place[];
 
 const fullScreenText =
   'fixed inset-0 grid place-items-center font-mono text-xs tracking-[0.06em] text-muted uppercase';
@@ -30,23 +33,24 @@ export default function App() {
 
   if (auth.status === 'loading') return <div className={fullScreenText}>Завантаження…</div>;
   if (auth.status === 'locked') return <Login />;
-  if (auth.status === 'local') return <MapApp api={localApi} canEdit user={auth.user} localMode />;
+  if (auth.status === 'local') return <MapApp api={localApi} placesApi={localPlacesApi} canEdit user={auth.user} localMode />;
 
   const email = auth.status === 'authed' ? auth.session.user.email : undefined;
-  if (auth.status === 'anon') return publicView ? <MapApp api={remoteApi} canEdit={false} showLogin /> : <Login />;
+  if (auth.status === 'anon') return publicView ? <MapApp api={remoteApi} placesApi={remotePlacesApi} canEdit={false} showLogin /> : <Login />;
   if (!auth.allowed && !publicView) return <Denied email={email} />;
-  return <MapApp api={remoteApi} canEdit={auth.allowed} user={email} />;
+  return <MapApp api={remoteApi} placesApi={remotePlacesApi} canEdit={auth.allowed} user={email} />;
 }
 
 interface MapAppProps {
   api: MarksApi;
+  placesApi: PlacesApi;
   canEdit: boolean;
   user?: string;
   localMode?: boolean;
   showLogin?: boolean;
 }
 
-function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
+function MapApp({ api, placesApi, canEdit, user, localMode, showLogin }: MapAppProps) {
   const engineRef = useRef<CityEngine | null>(null);
   const handlersRef = useRef<EngineHandlers>({});
   const [engineReady, setEngineReady] = useState(false);
@@ -55,7 +59,9 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
-  const [placing, setPlacing] = useState(false);
+  const [placing, setPlacing] = useState<Placing>(null);
+  const [customPlaces, setCustomPlaces] = useState<Place[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [walking, setWalking] = useState(false);
   const [touring, setTouring] = useState(false);
   const [tour, setTour] = useState<TourInfo | null>(null);
@@ -67,6 +73,7 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
   const marksRef = useRef(marks); marksRef.current = marks;
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId;
   const placingRef = useRef(placing); placingRef.current = placing;
+  const selectedPlaceRef = useRef(selectedPlaceId); selectedPlaceRef.current = selectedPlaceId;
 
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const showToast = useCallback((text: string, ms = 2600) => {
@@ -100,6 +107,59 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
     });
     return () => { dead = true; off(); };
   }, [api, showToast]);
+
+  /* ---------- власні місця ---------- */
+  const customRef = useRef(customPlaces); customRef.current = customPlaces;
+  const placeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    let dead = false;
+    placesApi.list()
+      .then((list) => { if (!dead) setCustomPlaces(list); })
+      .catch((e: unknown) => {
+        console.error(e); // найімовірніше, таблицю places ще не створено (supabase/places.sql)
+        if (!dead) showToast('Не вдалося завантажити місця: ' + errText(e), 6000);
+      });
+    return () => { dead = true; };
+  }, [placesApi, showToast]);
+
+  const savePlace = useCallback(async (id: string) => {
+    clearTimeout(placeTimer.current);
+    const p = customRef.current.find((x) => x.id === id);
+    if (!p) return;
+    try { await placesApi.save(p); showToast('Збережено', 1600); }
+    catch (e) { console.error(e); showToast('Не вдалося зберегти місце: ' + errText(e), 6000); }
+  }, [placesApi, showToast]);
+
+  const updatePlace = useCallback((id: string, patch: Partial<Place>) => {
+    setCustomPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    clearTimeout(placeTimer.current);
+    placeTimer.current = setTimeout(() => void savePlace(id), 800);
+  }, [savePlace]);
+
+  const deselectPlace = useCallback(() => {
+    if (selectedPlaceRef.current) void savePlace(selectedPlaceRef.current);
+    setSelectedPlaceId(null);
+  }, [savePlace]);
+
+  const addPlace = useCallback((x: number, z: number) => {
+    const np: Place = {
+      id: 'pl' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      name: '', addr: '', x, z, kind: 'poi', d: 7000, custom: true, by: user || '',
+    };
+    setCustomPlaces((prev) => [...prev, np]);
+    setPlacing(null);
+    setSelectedId(null);
+    setSelectedPlaceId(np.id);
+    void placesApi.save(np).catch((e: unknown) => { console.error(e); showToast('Не вдалося зберегти місце: ' + errText(e), 6000); });
+  }, [placesApi, showToast, user]);
+
+  const deletePlace = useCallback(async (id: string) => {
+    clearTimeout(placeTimer.current);
+    setCustomPlaces((prev) => prev.filter((p) => p.id !== id));
+    setSelectedPlaceId(null);
+    try { await placesApi.remove(id); } catch (e) { console.error(e); showToast('Не вдалося видалити місце: ' + errText(e), 6000); }
+  }, [placesApi, showToast]);
 
   /* ---------- збереження ---------- */
   const markDirty = useCallback((id: string) => {
@@ -147,7 +207,7 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
     const nm: Mark = { ...m, bid: m.bid >= 0 ? 1 : -1, by: user || '' };
     setMarks((prev) => [...prev, nm]);
     markDirty(nm.id);
-    setPlacing(false);
+    setPlacing(null);
     setSelectedId(nm.id);
   }, [markDirty, user]);
 
@@ -160,6 +220,7 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
 
   const select = useCallback((id: string, fly: boolean) => {
     setSelectedId(id);
+    setSelectedPlaceId(null);
     if (isMobile()) setListOpen(false);
     if (fly) flyToMark(id);
   }, [flyToMark]);
@@ -195,37 +256,49 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
       setSelectedId(on ? id : null);
       if (on) flyToMark(id);
     },
-    place: (m) => { if (canEdit) addMark(m); },
-    background: () => { if (selectedRef.current) deselect(); },
+    place: (m) => {
+      if (!canEdit) return;
+      if (placingRef.current === 'place') addPlace(m.x, m.z); else addMark(m);
+    },
+    background: () => { if (selectedRef.current) deselect(); if (selectedPlaceRef.current) deselectPlace(); },
     tour: (info) => { setTour(info); if (!info) setTouring(false); },
     walk: (w) => setWalking(w),
   };
 
   /* ---------- синхронізація стану React → рушій ---------- */
   useEffect(() => { engineRef.current?.setMarkers(marks); }, [marks, engineReady]);
-  useEffect(() => { engineRef.current?.setPlaces(places); }, [engineReady]);
+  const allPlaces = useMemo(() => [...builtinPlaces, ...customPlaces.filter((p) => p.name.trim())], [customPlaces]);
+  useEffect(() => { engineRef.current?.setPlaces(allPlaces); }, [allPlaces, engineReady]);
+  useEffect(() => {
+    if (!engineReady) return;
+    const css = getComputedStyle(document.documentElement);
+    engineRef.current?.setBuildingTints(
+      BUILDING_TINTS.map((t) => ({ lat: t.lat, lon: t.lon, color: css.getPropertyValue(`--color-${t.token}`).trim() })),
+    );
+  }, [engineReady]);
   useEffect(() => { engineRef.current?.setSelected(selectedId); }, [selectedId, engineReady]);
   useEffect(() => { engineRef.current?.setCanEdit(canEdit); }, [canEdit, engineReady]);
   useEffect(() => { engineRef.current?.setShowNames(showNames); }, [showNames, engineReady]);
-  useEffect(() => { engineRef.current?.setPlacing(placing); }, [placing, engineReady]);
+  useEffect(() => { engineRef.current?.setPlacing(!!placing); }, [placing, engineReady]);
 
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (engineRef.current?.isWalking()) { engineRef.current.stopWalk(); return; }
-      if (placingRef.current) { setPlacing(false); return; }
+      if (placingRef.current) { setPlacing(null); return; }
       deselect();
+      deselectPlace();
     };
     addEventListener('keydown', f);
     return () => removeEventListener('keydown', f);
-  }, [deselect]);
+  }, [deselect, deselectPlace]);
 
   /* ---------- кнопки ---------- */
   const toggleTour = () => {
     const e = engineRef.current; if (!e) return;
     if (touring) { e.stopTour(); setTouring(false); return; }
     if (selectedRef.current) deselect();
-    setPlacing(false);
+    setPlacing(null);
     e.startTour();
     setTouring(true);
   };
@@ -246,20 +319,29 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
   const latlon: [number, number] = selected && engineReady && engineRef.current
     ? engineRef.current.toLatLon(selected.x, selected.z)
     : [0, 0];
+  const selectedPlace = customPlaces.find((p) => p.id === selectedPlaceId) ?? null;
+  const placeLatlon: [number, number] = selectedPlace && engineReady && engineRef.current
+    ? engineRef.current.toLatLon(selectedPlace.x, selectedPlace.z)
+    : [0, 0];
   // відкрита шторка (список чи редактор) на телефоні закриває компас, підказки й кнопки ходіння
-  const sheet = listOpen || !!selectedId;
+  const sheet = listOpen || !!selectedId || !!selectedPlaceId;
 
   return (
     <>
       <MapView engineRef={engineRef} handlersRef={handlersRef} onReady={() => setEngineReady(true)} hideCompass={sheet} />
 
       <TopBar
+        engineRef={engineRef}
         canEdit={canEdit} placing={placing} walking={walking} touring={touring} count={marks.length}
-        showNames={showNames} user={user} localMode={localMode} showLogin={showLogin}
-        marks={marks} places={places}
-        onPlace={(p) => { deselect(); engineRef.current?.flyTo(p.x, p.z); }}
+        showNames={showNames} user={user} showLogin={showLogin}
+        marks={marks} places={allPlaces.filter((p) => p.name.trim())}
+        onPlace={(p) => {
+          deselect();
+          engineRef.current?.flyTo(p.x, p.z);
+          if (p.custom && canEdit) setSelectedPlaceId(p.id); else deselectPlace();
+        }}
         onPick={pickMark}
-        onAdd={() => setPlacing((p) => !p)} onWalk={toggleWalk} onTour={toggleTour}
+        onAdd={(kind) => setPlacing((p) => (p === kind ? null : kind))} onWalk={toggleWalk} onTour={toggleTour}
         onList={() => { if (!listOpen && selectedId && isMobile()) deselect(); setListOpen((v) => !v); }}
         onNames={setShowNames} onSignOut={() => void signOut()} onSignIn={() => setLoginOpen(true)}
       />
@@ -277,9 +359,14 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
           {toast}
         </div>
       )}
-      {placing && (
+      {placing === 'mark' && (
         <div className={hint}>
           Клацніть на будівлю чи вулицю — там загориться <b className="text-warm">тепле світло</b>. Esc — скасувати
+        </div>
+      )}
+      {placing === 'place' && (
+        <div className={hint}>
+          Клацніть там, де є <b className="text-warm">місце</b> (заклад, будівля), і дайте йому назву. Esc — скасувати
         </div>
       )}
       {walking && !placing && (
@@ -300,6 +387,14 @@ function MapApp({ api, canEdit, user, localMode, showLogin }: MapAppProps) {
           key={selected.id} mark={selected} latlon={latlon}
           onChange={(patch) => updateMark(selected.id, patch)}
           onClose={deselect} onDelete={() => void deleteMark(selected.id)}
+        />
+      )}
+
+      {canEdit && selectedPlace && (
+        <PlaceEditor
+          key={selectedPlace.id} place={selectedPlace} latlon={placeLatlon}
+          onChange={(patch) => updatePlace(selectedPlace.id, patch)}
+          onClose={deselectPlace} onDelete={() => void deletePlace(selectedPlace.id)}
         />
       )}
 
