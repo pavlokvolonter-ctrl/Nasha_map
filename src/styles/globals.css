@@ -1,0 +1,100 @@
+@import 'tailwindcss';
+
+/*
+ * Єдине місце, де задано кольори, шрифти й тіні. У компонентах — лише токени
+ * (bg-paper, text-muted, border-ink, text-danger…), без жодного hex.
+ */
+@theme {
+  --color-bg: #ebe9e5;
+  --color-paper: #ffffff;
+  --color-ink: #1f1e1c;
+  --color-ink-hover: #3a3834;
+  --color-muted: #6e6a63;
+  --color-rule: #d5d1ca;
+  --color-hover: #f4f2ee;
+  --color-field: #fbfaf8;
+  --color-warm: #f2a33a;
+  --color-warm-ink: #9a5c08;
+  --color-warm-soft: #fff1d9;
+  --color-warm-glow: #ffc46e;
+  --color-danger: #b3261e;
+  --color-scrim: rgb(235 233 229 / 0.9);
+  --color-label-bg: rgb(255 255 255 / 0.72);
+  --color-label-ink: #55524c;
+  --color-label-rule: rgb(31 30 28 / 0.08);
+
+  --font-sans: var(--font-onest), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, Menlo, Consolas, monospace;
+
+  --shadow-panel: 0 12px 30px rgb(31 30 28 / 0.12);
+  --shadow-pop: 0 8px 22px rgb(31 30 28 / 0.14);
+  --shadow-card: 0 8px 22px rgb(90 60 10 / 0.14);
+  --shadow-dot: 0 0 0 3px rgb(242 163 58 / 0.28), 0 0 16px 5px rgb(255 196 110 / 0.85);
+  --shadow-dot-sm: 0 0 8px 2px rgb(255 190 100 / 0.7);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply overflow-hidden bg-bg font-sans text-sm text-ink;
+    color-scheme: light;
+  }
+  input:focus-visible,
+  textarea:focus-visible {
+    @apply outline-2 outline-offset-2 outline-warm;
+  }
+}
+
+/*
+ * Елементи, які створює 3D-рушій імперативно (мітки, підписи місць, сцена).
+ * Класи ті самі, що в рушії: .pin, .lm, .card, .date, .title, .text, .tag, .stem, .dot.
+ */
+@layer components {
+  #stage canvas {
+    @apply block touch-none outline-none;
+  }
+  #stage.placing canvas {
+    @apply cursor-crosshair;
+  }
+
+  .lm {
+    @apply pointer-events-none absolute top-0 left-0 border border-label-rule bg-label-bg px-[5px] py-0.5 text-[10px] font-medium tracking-[0.09em] whitespace-nowrap text-label-ink uppercase max-sm:px-1 max-sm:py-px max-sm:text-[9px];
+  }
+
+  .pin {
+    @apply pointer-events-auto absolute top-0 left-0 flex origin-bottom cursor-pointer flex-col items-center;
+  }
+  .pin.ro {
+    @apply cursor-default;
+  }
+  .pin .card {
+    @apply max-w-[220px] min-w-[120px] border border-ink bg-paper px-2.5 pt-1.5 pb-[7px] shadow-card max-sm:max-w-[150px] max-sm:min-w-[84px] max-sm:px-[7px] max-sm:pt-1 max-sm:pb-[5px];
+  }
+  .pin.active .card {
+    @apply outline-2 outline-offset-2 outline-warm;
+  }
+  .pin .date {
+    @apply font-mono text-[10px] tracking-[0.05em] text-warm-ink uppercase max-sm:text-[9px];
+  }
+  .pin .title {
+    @apply text-[13px] leading-tight font-semibold text-balance max-sm:text-xs;
+  }
+  .pin .text {
+    @apply mt-1 hidden text-xs leading-snug text-muted;
+  }
+  .pin.active .text {
+    @apply block;
+  }
+  .pin .tag {
+    @apply ml-1.5 inline-block border border-rule px-1 align-[1px] font-mono text-[9px] tracking-[0.06em] text-muted uppercase;
+  }
+  .pin .stem {
+    @apply h-11 w-px bg-ink max-sm:h-[26px];
+  }
+  .pin .dot {
+    @apply -mt-px size-[9px] rounded-full bg-warm shadow-dot;
+  }
+}
